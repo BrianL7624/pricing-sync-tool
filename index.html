@@ -157,6 +157,8 @@
     letter-spacing:.06em;color:var(--ink-soft);font-weight:600;
     padding:8px 10px;border-bottom:1.5px solid var(--ink);
   }
+  .file-table th.sortable{cursor:pointer;user-select:none;}
+  .file-table th.sortable:hover{color:var(--ink);background:#f3efe3;}
   .file-table td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:middle;}
   .file-table tr:last-child td{border-bottom:none;}
   .file-table tr:hover td{background:#faf7ef;}
@@ -431,6 +433,7 @@ let state = {
   rollQty: null,
   mapping: {}, // tier -> {sheet, skuCol, priceCol}
   previewByTier: {}, // tier -> [{sku, newPrices:{qty:price}, isNew}]
+  librarySort: { col: 'tier', dir: 'asc' }, // 'file' | 'tier' | 'skus' | 'updated'
 };
 
 // ---------- storage helpers (browser localStorage, works on any site incl. GitHub Pages) ----------
@@ -555,12 +558,43 @@ function renderLibrary(){
   document.getElementById('fileCountSummary').textContent = total + ' file' + (total===1?'':'s') + ' on file';
 
   const wrap = document.getElementById('libFileListWrap');
-  const names = Object.keys(state.files).sort();
-  if(names.length===0){
+  const allNames = Object.keys(state.files);
+  if(allNames.length===0){
     wrap.innerHTML = `<div class="empty-state"><div class="big">—</div>No files stored yet. Upload your current SparkLayer exports above to get started.</div>`;
     return;
   }
-  let html = `<table class="file-table"><thead><tr><th>File</th><th>Tier</th><th>SKUs</th><th>Updated</th><th></th><th></th></tr></thead><tbody>`;
+
+  const TIER_ORDER = {silver:0, gold:1, proplus:2, platinum:3, unknown:4};
+  const {col, dir} = state.librarySort;
+  const mult = dir==='asc' ? 1 : -1;
+  const names = allNames.slice().sort((a,b)=>{
+    const fa = state.files[a], fb = state.files[b];
+    let va, vb;
+    if(col==='file'){ va=a.toLowerCase(); vb=b.toLowerCase(); }
+    else if(col==='tier'){
+      const ta = TIERS.includes(fa.tier) ? fa.tier : 'unknown';
+      const tb = TIERS.includes(fb.tier) ? fb.tier : 'unknown';
+      va = TIER_ORDER[ta]; vb = TIER_ORDER[tb];
+      if(va===vb){ va=a.toLowerCase(); vb=b.toLowerCase(); }
+    }
+    else if(col==='skus'){ va = new Set(fa.rows.map(r=>r.sku)).size; vb = new Set(fb.rows.map(r=>r.sku)).size; }
+    else if(col==='updated'){ va = fa.updatedAt||0; vb = fb.updatedAt||0; }
+    if(va<vb) return -1*mult;
+    if(va>vb) return 1*mult;
+    return 0;
+  });
+
+  function sortArrow(c){
+    if(state.librarySort.col!==c) return '';
+    return state.librarySort.dir==='asc' ? ' ▲' : ' ▼';
+  }
+
+  let html = `<table class="file-table"><thead><tr>
+    <th class="sortable" data-sort="file">File${sortArrow('file')}</th>
+    <th class="sortable" data-sort="tier">Tier${sortArrow('tier')}</th>
+    <th class="sortable" data-sort="skus">SKUs${sortArrow('skus')}</th>
+    <th class="sortable" data-sort="updated">Updated${sortArrow('updated')}</th>
+    <th></th><th></th></tr></thead><tbody>`;
   names.forEach(name=>{
     const f = state.files[name];
     const skuCount = new Set(f.rows.map(r=>r.sku)).size;
@@ -577,6 +611,19 @@ function renderLibrary(){
   });
   html += `</tbody></table>`;
   wrap.innerHTML = html;
+
+  wrap.querySelectorAll('th.sortable').forEach(th=>{
+    th.addEventListener('click', ()=>{
+      const c = th.getAttribute('data-sort');
+      if(state.librarySort.col===c){
+        state.librarySort.dir = state.librarySort.dir==='asc' ? 'desc' : 'asc';
+      } else {
+        state.librarySort.col = c;
+        state.librarySort.dir = 'asc';
+      }
+      renderLibrary();
+    });
+  });
 
   wrap.querySelectorAll('[data-dl]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
@@ -1012,7 +1059,15 @@ async function doMerge(){
     }
   }
 
-  resultEl.innerHTML = `<div class="inline-note good">Done — merged into ${filesTouched} stored file${filesTouched===1?'':'s'}. Head to the Library tab to download.</div>`;
+  resultEl.innerHTML = `<div class="inline-note good">Done — merged into ${filesTouched} stored file${filesTouched===1?'':'s'}.</div>
+    <div class="btn-row" style="margin-top:10px;">
+      <button class="btn accent" id="mergeDownloadAllBtn">Download all as .zip</button>
+      <button class="btn secondary" id="mergeGoToLibraryBtn">View in Library</button>
+    </div>`;
+  document.getElementById('mergeDownloadAllBtn').addEventListener('click', downloadAllZip);
+  document.getElementById('mergeGoToLibraryBtn').addEventListener('click', ()=>{
+    document.querySelector('.tab-btn[data-tab="library"]').click();
+  });
   renderLibrary();
 }
 
