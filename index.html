@@ -6,7 +6,7 @@
 <title>Tier Pricing Sync</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/SheetJS/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
   :root{
@@ -433,20 +433,38 @@ let state = {
   previewByTier: {}, // tier -> [{sku, newPrices:{qty:price}, isNew}]
 };
 
-// ---------- storage helpers ----------
+// ---------- storage helpers (browser localStorage, works on any site incl. GitHub Pages) ----------
+const LS_PREFIX = 'pricingSyncTool:';
+
 async function storageSet(key, value){
-  try{ await window.storage.set(key, value, false); }catch(e){ console.error('storage set failed', key, e); }
+  try{
+    localStorage.setItem(LS_PREFIX + key, value);
+  }catch(e){
+    console.error('storage set failed', key, e);
+    if(e && e.name === 'QuotaExceededError'){
+      alert('Browser storage is full. Try removing a few old files from the Library tab, or use a browser/profile with more free storage.');
+    }
+  }
 }
 async function storageGet(key){
-  try{ const r = await window.storage.get(key, false); return r ? r.value : null; }
+  try{ return localStorage.getItem(LS_PREFIX + key); }
   catch(e){ return null; }
 }
 async function storageDelete(key){
-  try{ await window.storage.delete(key, false); }catch(e){}
+  try{ localStorage.removeItem(LS_PREFIX + key); }catch(e){}
 }
 async function storageList(prefix){
-  try{ const r = await window.storage.list(prefix, false); return r ? r.keys : []; }
-  catch(e){ return []; }
+  try{
+    const out = [];
+    const fullPrefix = LS_PREFIX + (prefix || '');
+    for(let i=0;i<localStorage.length;i++){
+      const k = localStorage.key(i);
+      if(k && k.indexOf(fullPrefix)===0){
+        out.push(k.slice(LS_PREFIX.length));
+      }
+    }
+    return out;
+  }catch(e){ return []; }
 }
 
 // ---------- CSV helpers ----------
@@ -1008,10 +1026,24 @@ document.getElementById('clearAllBtn').addEventListener('click', async ()=>{
   renderLibrary();
 });
 
+function checkLibraries(){
+  const missing = [];
+  if(typeof XLSX === 'undefined') missing.push('SheetJS (xlsx)');
+  if(typeof JSZip === 'undefined') missing.push('JSZip');
+  if(missing.length){
+    const warn = document.createElement('div');
+    warn.className = 'inline-note bad';
+    warn.style.margin = '20px 0';
+    warn.innerHTML = `<b>Some required scripts failed to load:</b> ${missing.join(', ')}. This usually means your network or browser blocked a CDN script. Try disabling any ad blocker / content blocker for this page, check your network connection, then reload.`;
+    document.querySelector('.app').insertBefore(warn, document.querySelector('.crumbline'));
+  }
+}
+
 setupTabs();
 setupLibDropzone();
 setupStepper();
 loadAllFromStorage();
+checkLibraries();
 
 })();
 </script>
